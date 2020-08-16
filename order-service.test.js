@@ -3,6 +3,10 @@ const {
   shipPackage,
   initCatalog,
   processRestock,
+  prepareShipment,
+  subStractUnfulfillableProducts,
+  firstFitDecreasingPacking,
+  shipDrones,
   inventory,
   pendingOrders,
 } = require("./order-service");
@@ -85,6 +89,91 @@ test("Should send orders to pending collection if not available in stock", () =>
     ],
   };
 
-  processOrder(order);
-  console.log(pendingOrders);
+  let drones = processOrder(order);
+  expect(drones).toEqual([
+    { order_id: 123, capacity: 100, products: { "0": 2, "10": 1 } },
+    { order_id: 123, capacity: 100, products: { "1": 2, "10": 1 } },
+    { order_id: 123, capacity: 900, products: { "10": 3 } },
+  ]);
+  expect(pendingOrders).toEqual([
+    { order_id: 123, requested: [{ product_id: 10, quantity: 95 }] },
+  ]);
+});
+
+test("prepareShipment should transform products in drone into shipment object", () => {
+  let shipment = prepareShipment({
+    order_id: 123,
+    capacity: 100,
+    products: { "0": 2, "10": 1 },
+  });
+
+  expect(shipment).toEqual({
+    order_id: 123,
+    shipped: [
+      { product_id: 0, quantity: 2 },
+      { product_id: 10, quantity: 1 },
+    ],
+  });
+});
+
+test("Ship drones once you have all the shipment objects", () => {
+  let shipments = [
+    { order_id: 123, shipped: [] },
+    { order_id: 123, shipped: [] },
+    { order_id: 123, shipped: [] },
+  ];
+
+  const shipPackage = jest.fn();
+  shipDrones(shipments, shipPackage);
+
+  expect(shipPackage).toHaveBeenCalledTimes(shipments.length);
+});
+
+test("substractedProducts should create an unfulfillable order", () => {
+  let unfilfillableProducts = subStractUnfulfillableProducts(
+    { product_id: 10, quantity: 100 },
+    {
+      order_id: 123,
+      shipped: [
+        { product_id: 0, quantity: 2 },
+        { product_id: 10, quantity: 100 },
+      ],
+    }
+  );
+
+  expect(unfilfillableProducts).toEqual({
+    order_id: 123,
+    requested: [{ product_id: 10, quantity: 95 }],
+  });
+});
+
+test("When product is not in inventory add it to unfulfillable order", () => {
+  let unfilfillableProducts = subStractUnfulfillableProducts(
+    { product_id: 15, quantity: 100 },
+    {
+      order_id: 123,
+      shipped: [{ product_id: 15, quantity: 100 }],
+    }
+  );
+
+  expect(unfilfillableProducts).toEqual({
+    order_id: 123,
+    requested: [{ product_id: 15, quantity: 100 }],
+  });
+});
+
+test("does firstfitdecreasing packing work", () => {
+  let drones = [];
+  let order = {
+    order_id: 123,
+    shipped: [
+      { product_id: 0, quantity: 2 },
+      { product_id: 10, quantity: 100 },
+    ],
+  };
+  let product = { product_id: 0, quantity: 2 };
+  firstFitDecreasingPacking(product, drones, order);
+  expect(drones).toEqual([
+    { order_id: 123, capacity: 400, products: { "0": 2 } },
+  ]);
 });
