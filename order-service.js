@@ -5,9 +5,9 @@ const SHIPMENT_THRESHOLD = 1800;
 /**
  * Initializes our inventory with all products in productInfo
  * and sets the quantity for every product to zero
- * Time Complexity -
- * Space Complexity -
- * @param  {} productInfo
+ * Time Complexity - O(n)
+ * Space Complexity - O(n)
+ * @param  {array} productInfo - info about inventory products
  */
 function initCatalog(productInfo) {
   for (let product of productInfo) {
@@ -19,9 +19,9 @@ function initCatalog(productInfo) {
 /**
  * Add new products to the inventory when there is
  * a new supply and calls processOrder on any pending orders.
- * Time Complexity -
- * Space Complexity -
- * @param  {} restock
+ * Time Complexity - O(n)
+ * Space Complexity - O(1)
+ * @param  {array} restock - new stock of products
  */
 function processRestock(restock) {
   for (let stock of restock) {
@@ -35,34 +35,17 @@ function processRestock(restock) {
 /**
  * Prints information about the a particular shipping. Its order_id,
  * and the products in the shipment.
- * Time Complexity -
- * Space Complexity -
- * @param  {} shipment
+ * Time Complexity - O(n)
+ * Space Complexity - O(1)
+ * @param  {object} shipment - shipment < 1.8Kg ready to fly on drone
  */
-function shipPackage(shipment) {
-  console.log(`Order ${shipment.order_id} has just been shipped.`);
-  console.log(`It comprises of the following products: `);
+function shipPackage(shipment, print) {
+  print(`Order ${shipment.order_id} has just been shipped.`);
+  print(`It comprises of the following products: `);
   for (let product of shipment.shipped) {
-    console.log(
-      `${product.quantity} ${inventory[product.product_id].product_name}`
-    );
+    print(`${product.quantity} ${inventory[product.product_id].product_name}`);
   }
 }
-
-const order = {
-  order_id: 123,
-  requested: [
-    { product_id: 0, quantity: 2 },
-    { product_id: 10, quantity: 4 },
-  ],
-};
-const shipment = {
-  order_id: 123,
-  shipped: [
-    { product_id: 0, quantity: 1 },
-    { product_id: 10, quantity: 2 },
-  ],
-};
 
 /**
  * Processes incoming orders so as to fit the 1.8Kg
@@ -70,15 +53,11 @@ const shipment = {
  * for fulfillment.
  * Time Complexity -
  * Space Complexity -
- * @param  {} order
+ * @param  {object} order - order with requested list of products from hospital.
  */
 function processOrder(order) {
-  let shipmentMass = 0;
-
-  let shipment = {
-    order_id: order.order_id,
-    shipped: [],
-  };
+  let shipments = [];
+  let currShipmentMass = 0;
 
   let unfilfilledPartialOrder = {
     order_id: order.order_id,
@@ -91,6 +70,7 @@ function processOrder(order) {
       inventory[product.product_id].quantity === 0
     ) {
       unfilfilledPartialOrder.requested.push(product);
+      continue;
     }
 
     if (inventory[product.product_id].quantity < product.quantity) {
@@ -104,29 +84,50 @@ function processOrder(order) {
       product.quantity = inventory[product.product_id].quantity;
     }
 
-    //fulfill
+    if (unfilfilledPartialOrder.requested.length !== 0)
+      pendingOrders.push(unfilfilledPartialOrder);
+
     while (product.quantity > 0) {
       if (
-        inventory[product.product_id].mass_g + shipmentMass >
-        SHIPMENT_THRESHOLD
+        inventory[product.product_id].mass_g + currShipmentMass >
+          SHIPMENT_THRESHOLD ||
+        shipments.length === 0
       ) {
-        shipPackage(shipment);
-        shipment = {
+        shipments.push({
           order_id: order.order_id,
-          shipped: [product],
-        };
-        shipmentMass = product.quantity * inventory[product.product_id].mass_g;
-      } else {
-        shipment.shipped.push(product);
-        shipmentMass += product.quantity * inventory[product.product_id].mass_g;
-      }
+          shipped: [],
+        });
 
+        shipments[shipments.length - 1].shipped.push({
+          product_id: product.product_id,
+          quantity: 1,
+        });
+
+        currShipmentMass = inventory[product.product_id].mass_g;
+      } else {
+        let currShipment = shipments[shipments.length - 1].shipped;
+        let lastProductCurrShipment = currShipment[currShipment.length - 1];
+        if (lastProductCurrShipment.product_id !== product.product_id) {
+          shipments[shipments.length - 1].shipped.push({
+            product_id: product.product_id,
+            quantity: 0,
+          });
+        }
+        currShipment[currShipment.length - 1].quantity++;
+        currShipmentMass += inventory[product.product_id].mass_g;
+      }
       product.quantity--;
     }
   }
+
+  shipments.forEach((shipment) => {
+    shipPackage(shipment, console.log);
+  });
 }
 
 exports.initCatalog = initCatalog;
 exports.shipPackage = shipPackage;
 exports.processOrder = processOrder;
 exports.processRestock = processRestock;
+exports.inventory = inventory;
+exports.pendingOrders = pendingOrders;
