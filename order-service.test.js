@@ -81,7 +81,7 @@ test("Should send orders to pending collection if not available in stock", () =>
     requested: [
       { product_id: 0, quantity: 2 },
       { product_id: 1, quantity: 2 },
-      //{ product_id: 10, quantity: 100 },
+      { product_id: 10, quantity: 100 },
     ],
   };
 

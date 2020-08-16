@@ -64,7 +64,11 @@ function processOrder(order) {
     requested: [],
   };
 
-  for (let product of order.requested) {
+  let sortedRequest = order.requested.sort((a, b) => {
+    return inventory[b.product_id].mass_g - inventory[a.product_id].mass_g;
+  });
+
+  for (let product of sortedRequest) {
     if (
       inventory[product.product_id] === undefined ||
       inventory[product.product_id].quantity === 0
