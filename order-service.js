@@ -1,6 +1,6 @@
 const inventory = {};
 const pendingOrders = [];
-const SHIPMENT_THRESHOLD = 1800;
+const DRONE_CAPACITY = 1800;
 
 /**
  * Initializes our inventory with all products in productInfo
@@ -38,6 +38,7 @@ function processRestock(restock) {
  * Time Complexity - O(n)
  * Space Complexity - O(1)
  * @param  {object} shipment - shipment < 1.8Kg ready to fly on drone
+ * @param {function} print - expects the a print function like console.log
  */
 function shipPackage(shipment, print) {
   print(`Order ${shipment.order_id} has just been shipped.`);
@@ -51,87 +52,153 @@ function shipPackage(shipment, print) {
  * Processes incoming orders so as to fit the 1.8Kg
  * constraint of every shipment before pushing out order
  * for fulfillment.
- * Time Complexity -
- * Space Complexity -
+ * Time Complexity - O(n(ml + logn))
+ * Space Complexity - O(m) - representative of the numbers of drones for the order.
  * @param  {object} order - order with requested list of products from hospital.
  */
 function processOrder(order) {
-  let shipments = [];
-  let currShipmentMass = 0;
-
-  let unfilfilledPartialOrder = {
-    order_id: order.order_id,
-    requested: [],
-  };
+  let drones = [];
 
   let sortedRequest = order.requested.sort((a, b) => {
     return inventory[b.product_id].mass_g - inventory[a.product_id].mass_g;
   });
 
   for (let product of sortedRequest) {
-    if (
-      inventory[product.product_id] === undefined ||
-      inventory[product.product_id].quantity === 0
-    ) {
-      unfilfilledPartialOrder.requested.push(product);
-      continue;
-    }
+    let unfilfillableProducts = subStractUnfulfillableProducts(product, order);
 
-    if (inventory[product.product_id].quantity < product.quantity) {
-      let quantityLeftToFulfill =
-        product.quantity - inventory[product.product_id].quantity;
-      unfilfilledPartialOrder.requested.push({
-        product_id: product.product_id,
-        quantity: quantityLeftToFulfill,
-      });
+    if (unfilfillableProducts.requested.length !== 0)
+      pendingOrders.push(unfilfillableProducts);
 
-      product.quantity = inventory[product.product_id].quantity;
-    }
-
-    if (unfilfilledPartialOrder.requested.length !== 0)
-      pendingOrders.push(unfilfilledPartialOrder);
-
-    while (product.quantity > 0) {
-      if (
-        inventory[product.product_id].mass_g + currShipmentMass >
-          SHIPMENT_THRESHOLD ||
-        shipments.length === 0
-      ) {
-        shipments.push({
-          order_id: order.order_id,
-          shipped: [],
-        });
-
-        shipments[shipments.length - 1].shipped.push({
-          product_id: product.product_id,
-          quantity: 1,
-        });
-
-        currShipmentMass = inventory[product.product_id].mass_g;
-      } else {
-        let currShipment = shipments[shipments.length - 1].shipped;
-        let lastProductCurrShipment = currShipment[currShipment.length - 1];
-        if (lastProductCurrShipment.product_id !== product.product_id) {
-          shipments[shipments.length - 1].shipped.push({
-            product_id: product.product_id,
-            quantity: 0,
-          });
-        }
-        currShipment[currShipment.length - 1].quantity++;
-        currShipmentMass += inventory[product.product_id].mass_g;
-      }
-      product.quantity--;
-    }
+    firstFitDecreasingPacking(product, drones, order);
   }
 
+  let shipments = drones.map(prepareShipment);
+  shipDrones(shipments, shipPackage);
+  return drones;
+}
+
+/**
+ * Use the firstfitdecreasing algorithm to minimize the number of drones
+ * used per order. This algorithm comes from the bin packing problem in
+ * computer science. This current implementation could be improved by
+ * storing our drones in balanced binary search tree (AVL tree, Red Black tree).
+ * This will improve the time for search firstfit drone.
+ * Time Complexity - O(ml), l for the number of drones and m for the product quantity.
+ * Space Complexity - O(1)
+ * @param {object} product - product currently being packed
+ * @param {array} drones - collections of drones to use for delivery.
+ * @param {object} order - order object with requested
+ */
+function firstFitDecreasingPacking(product, drones, order) {
+  while (product.quantity > 0) {
+    let initQuantity = product.quantity;
+    for (let drone of drones) {
+      if (drone.capacity > inventory[product.product_id].mass_g) {
+        drone.capacity -= inventory[product.product_id].mass_g;
+        drone.products[product.product_id] =
+          drone.products[product.product_id] === undefined
+            ? 1
+            : 1 + drone.products[product.product_id];
+        product.quantity--;
+        break;
+      }
+    }
+
+    if (initQuantity === product.quantity) {
+      let drone = {
+        order_id: order.order_id,
+        capacity: DRONE_CAPACITY - inventory[product.product_id].mass_g,
+        products: {},
+      };
+
+      drone.products[product.product_id] = 1;
+      product.quantity--;
+      drones.push(drone);
+    }
+  }
+}
+
+/**
+ *Extract the product quantity that cannot be fulfilled at the moment.
+ * Time Complexity - O(1)
+ * Space Complexity - O(1)
+ * @param {object} product - object with product_id and quantity requested
+ * @param {object} order - order object from hospital.
+ */
+function subStractUnfulfillableProducts(product, order) {
+  let unfilfillableProducts = {
+    order_id: order.order_id,
+    requested: [],
+  };
+
+  if (
+    inventory[product.product_id] === undefined ||
+    inventory[product.product_id].quantity === 0
+  ) {
+    unfilfillableProducts.requested.push({
+      product_id: product.product_id,
+      quantity: product.quantity,
+    });
+    product.quantity = 0;
+    return unfilfillableProducts;
+  }
+
+  if (inventory[product.product_id].quantity < product.quantity) {
+    let quantityLeftToFulfill =
+      product.quantity - inventory[product.product_id].quantity;
+    unfilfillableProducts.requested.push({
+      product_id: product.product_id,
+      quantity: quantityLeftToFulfill,
+    });
+
+    product.quantity = inventory[product.product_id].quantity;
+  }
+
+  return unfilfillableProducts;
+}
+
+/**
+ * Calls shipPackage to ship a collection of shipments.
+ * Time Complexity - O(n*n) because shipPackage takes O(n)
+ * Space Complexity - O(1)
+ * @param {array} shipments - shipments to be put on drones for delivery
+ * @param {function} shipPackage - ships packages
+ */
+function shipDrones(shipments, shipPackage) {
   shipments.forEach((shipment) => {
     shipPackage(shipment, console.log);
   });
+}
+
+/**
+ * Re-structure items in the drone so that it is ready to be shipped.
+ * Time Complexity - O(n)
+ * Space Complexity - 0(n)
+ * @param {object} drone - drone object with capacity, order_id and shipments
+ * @returns {object} - shipment object ready to get in drone.
+ */
+function prepareShipment(drone) {
+  let shipped = [];
+  for (let productId of Object.keys(drone.products)) {
+    shipped.push({
+      product_id: Number(productId),
+      quantity: drone.products[productId],
+    });
+  }
+
+  return {
+    order_id: drone.order_id,
+    shipped: shipped,
+  };
 }
 
 exports.initCatalog = initCatalog;
 exports.shipPackage = shipPackage;
 exports.processOrder = processOrder;
 exports.processRestock = processRestock;
+exports.prepareShipment = prepareShipment;
+exports.shipDrones = shipDrones;
+exports.subStractUnfulfillableProducts = subStractUnfulfillableProducts;
+exports.firstFitDecreasingPacking = firstFitDecreasingPacking;
 exports.inventory = inventory;
 exports.pendingOrders = pendingOrders;
